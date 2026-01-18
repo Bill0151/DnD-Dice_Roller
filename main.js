@@ -77,34 +77,43 @@ world.solver.iterations = 15;
 
 const physicsMaterial = new CANNON.Material("diceMaterial");
 const contactMaterial = new CANNON.ContactMaterial(physicsMaterial, physicsMaterial, {
-friction: 0.6,
-restitution: 0.15
+friction: 0.7,
+restitution: 0.08
 });
 world.addContactMaterial(contactMaterial);
 
 createTray(physicsMaterial);
 
 window.addEventListener("resize", handleResize);
-  renderer.domElement.addEventListener("pointerdown", onPointerDown, { passive: true });
-  renderer.domElement.addEventListener("pointerup", onPointerUp, { passive: true });
+  renderer.domElement.addEventListener("pointerdown", (e) => { e.preventDefault(); onPointerDown(e); }, { passive: false });
+  renderer.domElement.addEventListener("pointerup", (e) => { e.preventDefault(); onPointerUp(e); }, { passive: false });
+  renderer.domElement.addEventListener("pointermove", (e) => { e.preventDefault(); }, { passive: false });
   renderer.domElement.addEventListener("pointercancel", () => { swipeStart = null; }, { passive: true });
   renderer.domElement.addEventListener("touchstart", (e) => {
+    e.preventDefault();
     const t = e.touches && e.touches[0] ? e.touches[0] : null;
     if (!t) return;
     swipeStart = { x: t.clientX, y: t.clientY, t: performance.now() };
-  }, { passive: true });
+  }, { passive: false });
+  renderer.domElement.addEventListener("touchmove", (e) => {
+    e.preventDefault();
+  }, { passive: false });
   renderer.domElement.addEventListener("touchend", (e) => {
+    e.preventDefault();
     const t = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0] : null;
     if (!t || !swipeStart) return;
     const dt = Math.max(10, performance.now() - swipeStart.t);
     const dx = t.clientX - swipeStart.x;
     const dy = t.clientY - swipeStart.y;
     const scale = 0.02;
-    const vx = THREE.MathUtils.clamp(dx * scale, -8, 8);
-    const vz = THREE.MathUtils.clamp(-dy * scale, -10, -2);
+    const vx = THREE.MathUtils.clamp(dx * scale, -6, 6);
+    const vz = THREE.MathUtils.clamp(-dy * scale, -8, -2);
     swipeVector = { vx, vz };
     swipeStart = null;
-  }, { passive: true });
+    if (getTotalSelectionCount() > 0) {
+      rollSelectedDice();
+    }
+  }, { passive: false });
 
   diceButtons.forEach(button => {
     button.addEventListener("click", () => {
@@ -232,12 +241,13 @@ function rollSelectedDice() {
   if (total === 0) {
     return;
   }
+  const rollId = "r" + Math.floor(Math.random() * 1e9).toString(36);
   const keys = Object.keys(selectionCounts);
   for (let i = 0; i < keys.length; i += 1) {
     const type = keys[i];
     const count = selectionCounts[type];
     for (let j = 0; j < count; j += 1) {
-      spawnDie(type, swipeVector);
+      spawnDie(type, swipeVector, rollId);
     }
   }
   clearSelection();
@@ -300,7 +310,7 @@ world.addBody(floorBody);
 
 const halfW = traySize.width / 2;
 const halfD = traySize.depth / 2;
-const wallThickness = 0.5;
+const wallThickness = 0.6;
 const wallHeight = traySize.height;
 
 const wallGeometry = new THREE.BoxGeometry(traySize.width + wallThickness * 2, wallHeight, wallThickness);
@@ -351,6 +361,20 @@ addWallBody(0, wallHeight / 2, -halfD - wallThickness / 2, traySize.width + wall
 addWallBody(0, wallHeight / 2, halfD + wallThickness / 2, traySize.width + wallThickness * 2, wallHeight, wallThickness, 0);
 addWallBody(-halfW - wallThickness / 2, wallHeight / 2, 0, traySize.depth + wallThickness * 2, wallHeight, wallThickness, Math.PI / 2);
 addWallBody(halfW + wallThickness / 2, wallHeight / 2, 0, traySize.depth + wallThickness * 2, wallHeight, wallThickness, Math.PI / 2);
+
+  const lipThickness = 0.4;
+  const lipHeight = 0.2;
+  function addLip(px, pz, width, rotationY) {
+    const shape = new CANNON.Box(new CANNON.Vec3(width / 2, lipHeight / 2, lipThickness / 2));
+    const body = new CANNON.Body({ mass: 0, shape, material: physicsMaterial });
+    body.position.set(px, wallHeight - lipHeight / 2, pz);
+    if (rotationY) body.quaternion.setFromEuler(0, rotationY, 0);
+    world.addBody(body);
+  }
+  addLip(0, -halfD - wallThickness / 2, traySize.width + wallThickness * 1.5, 0);
+  addLip(0, halfD + wallThickness / 2, traySize.width + wallThickness * 1.5, 0);
+  addLip(-halfW - wallThickness / 2, 0, traySize.depth + wallThickness * 1.5, Math.PI / 2);
+  addLip(halfW + wallThickness / 2, 0, traySize.depth + wallThickness * 1.5, Math.PI / 2);
 }
 
 function createDieMesh(type) {
@@ -358,6 +382,19 @@ let geometry;
 let radius;
 
 switch (type) {
+    case "d2":
+      radius = 0.5;
+      geometry = new THREE.CylinderGeometry(0.1, 0.1, 1.2, 4);
+      geometry.scale(1.2, 0.2, 1.2);
+      break;
+    case "d3":
+      radius = 0.6;
+      geometry = new THREE.CylinderGeometry(0.5, 0.5, 1.5, 3);
+      break;
+    case "d5":
+      radius = 0.6;
+      geometry = new THREE.DodecahedronGeometry(radius);
+      break;
 case "d4":
 radius = 0.5;
 geometry = new THREE.TetrahedronGeometry(radius);
@@ -414,7 +451,9 @@ geometry = new THREE.BoxGeometry(radius * 2, radius * 2, radius * 2);
   if (type === "d6") {
     material = createD6Materials();
   } else {
-    material = createMaterialForCurrentStyle();
+    material = type === "d2" || type === "d3" || type === "d5"
+      ? new THREE.MeshStandardMaterial({ color: new THREE.Color(diceColor), metalness: 0.8, roughness: 0.2 })
+      : createMaterialForCurrentStyle();
   }
 
   const mesh = new THREE.Mesh(geometry, material);
@@ -424,7 +463,7 @@ geometry = new THREE.BoxGeometry(radius * 2, radius * 2, radius * 2);
   return { mesh, radius };
 }
 
-function spawnDie(type, velocityOverride) {
+function spawnDie(type, velocityOverride, rollId) {
 const style = {
 diceColor,
 numberColor,
@@ -444,6 +483,10 @@ const laneIndex = Math.floor(Math.random() * 3);
 let bodyShape;
 if (type === "d6") {
 bodyShape = new CANNON.Box(new CANNON.Vec3(radius, radius, radius));
+} else if (type === "d2") {
+  bodyShape = new CANNON.Cylinder(0.1, 0.1, 1.2, 4);
+} else if (type === "d3") {
+  bodyShape = new CANNON.Cylinder(0.5, 0.5, 1.5, 3);
 } else {
 bodyShape = new CANNON.Sphere(radius);
 }
@@ -494,7 +537,8 @@ value: null,
 diceColor: style.diceColor,
 numberColor: style.numberColor,
 texture: style.texture,
-    profileName: style.profileName
+  profileName: style.profileName,
+  rollId: rollId || null
 };
 
   if (type === "d4" || type === "d20") {
@@ -506,6 +550,12 @@ dice.push(die);
 
 function getSidesForType(type) {
 switch (type) {
+    case "d2":
+      return 2;
+    case "d3":
+      return 3;
+    case "d5":
+      return 5;
 case "d4":
 return 4;
 case "d6":
@@ -618,6 +668,16 @@ function getDieValue(die) {
     return getD6ValueFromOrientation(die.body);
   }
   const up = new CANNON.Vec3(0, 1, 0);
+  if (die.type === "d2") {
+    const dot = die.body.quaternion.vmult(new CANNON.Vec3(0, 1, 0)).dot(up);
+    return dot >= 0 ? 1 : 2;
+  }
+  if (die.type === "d3") {
+    return 1 + Math.floor(Math.random() * 3);
+  }
+  if (die.type === "d5") {
+    return 1 + Math.floor(Math.random() * 5);
+  }
   if (die.type === "d4") {
     const normals = [
       { normal: new CANNON.Vec3(0, 1, 0), value: 1 },
@@ -646,7 +706,7 @@ function getDieValue(die) {
   return 1 + Math.floor(Math.random() * die.sides);
 }
 
-function createFaceLabelSprite(text, colorHex, scale) {
+function createFaceLabelMesh(text, colorHex, scale) {
   const size = 128;
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -662,10 +722,10 @@ function createFaceLabelSprite(text, colorHex, scale) {
   texture.generateMipmaps = false;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
-  const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
-  const sprite = new THREE.Sprite(material);
-  sprite.scale.set(scale, scale, 1);
-  return sprite;
+  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+  const geo = new THREE.PlaneGeometry(scale, scale);
+  const mesh = new THREE.Mesh(geo, material);
+  return mesh;
 }
 
 function addFaceNumbersToDie(die) {
@@ -682,8 +742,8 @@ function addFaceNumbersToDie(die) {
   } else if (die.type === "d20") {
     for (let i = 0; i < 20; i += 1) numbers.push(i + 1);
   }
-  const scale = die.type === "d4" ? 0.5 : 0.35;
-  const offset = die.type === "d4" ? die.radius * 0.35 : die.radius * 0.25;
+  const scale = die.type === "d4" ? 0.6 : 0.4;
+  const offset = die.type === "d4" ? die.radius * 0.02 : die.radius * 0.02;
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
   const c = new THREE.Vector3();
@@ -704,9 +764,12 @@ function addFaceNumbersToDie(die) {
     }
     centroid.copy(a).add(b).add(c).multiplyScalar(1 / 3);
     normal.copy(b).sub(a).cross(c.clone().sub(a)).normalize();
-    const sprite = createFaceLabelSprite(numbers[f], die.numberColor, scale);
-    sprite.position.copy(centroid.clone().add(normal.multiplyScalar(offset)));
-    die.mesh.add(sprite);
+    const label = createFaceLabelMesh(numbers[f], die.numberColor, scale);
+    const target = centroid.clone().add(normal.clone().multiplyScalar(offset));
+    label.position.copy(target);
+    const lookAtTarget = centroid.clone().add(normal);
+    label.lookAt(lookAtTarget);
+    die.mesh.add(label);
   }
 }
 
@@ -809,7 +872,8 @@ const entry = {
 type: die.type,
 value,
 profileName: die.profileName || "",
-color: die.diceColor
+    color: die.diceColor,
+    rollId: die.rollId || null
 };
 rollHistory.push(entry);
 if (rollHistory.length > maxHistoryEntries) {
@@ -819,16 +883,33 @@ renderRollHistory();
 }
 
 function renderRollHistory() {
-rollHistoryEl.innerHTML = "";
-for (let i = 0; i < rollHistory.length; i += 1) {
-const entry = rollHistory[i];
-const chip = document.createElement("div");
-chip.className = "roll-chip";
-chip.textContent = (entry.profileName ? entry.profileName + " " : "") + entry.type + ": " + entry.value;
-chip.style.borderColor = entry.color;
-chip.style.color = entry.color;
-rollHistoryEl.appendChild(chip);
-}
+  rollHistoryEl.innerHTML = "";
+  const groups = {};
+  for (let i = 0; i < rollHistory.length; i += 1) {
+    const e = rollHistory[i];
+    const gid = e.rollId || ("g" + i);
+    if (!groups[gid]) {
+      groups[gid] = [];
+    }
+    groups[gid].push(e);
+  }
+  const ids = Object.keys(groups);
+  for (let i = 0; i < ids.length; i += 1) {
+    const gid = ids[i];
+    const container = document.createElement("div");
+    container.className = "roll-group";
+    const items = groups[gid];
+    for (let j = 0; j < items.length; j += 1) {
+      const entry = items[j];
+      const chip = document.createElement("div");
+      chip.className = "roll-chip";
+      chip.textContent = (entry.profileName ? entry.profileName + " " : "") + entry.type + ": " + entry.value;
+      chip.style.borderColor = entry.color;
+      chip.style.color = entry.color;
+      container.appendChild(chip);
+    }
+    rollHistoryEl.appendChild(container);
+  }
 }
 
 function getD6ValueFromOrientation(body) {
