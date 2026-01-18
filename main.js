@@ -173,30 +173,38 @@ if (textureStyleSelect) {
   });
 }
 
-applyProfileButton.addEventListener("click", () => {
-const name = profileSelect.value;
-if (name) {
-applyProfile(name);
+if (applyProfileButton && profileSelect) {
+  applyProfileButton.addEventListener("click", () => {
+    const name = profileSelect.value;
+    if (name) {
+      applyProfile(name);
+    }
+  });
 }
-});
 
-saveProfileButton.addEventListener("click", () => {
-const name = profileNameInput.value.trim() || profileSelect.value.trim();
-if (!name) {
-return;
+if (saveProfileButton) {
+  saveProfileButton.addEventListener("click", () => {
+    const baseName = (profileNameInput && profileNameInput.value ? profileNameInput.value.trim() : "");
+    const fallback = (profileSelect && profileSelect.value ? profileSelect.value.trim() : "");
+    const name = baseName || fallback;
+    if (!name) {
+      return;
+    }
+    profiles[name] = {
+      diceColor,
+      numberColor,
+      texture: currentTexture
+    };
+    saveProfiles();
+    refreshProfileSelect(name);
+  });
 }
-profiles[name] = {
-diceColor,
-numberColor,
-texture: currentTexture
-};
-saveProfiles();
-refreshProfileSelect(name);
-});
 
-clearDiceButton.addEventListener("click", () => {
-clearAllDice();
-});
+if (clearDiceButton) {
+  clearDiceButton.addEventListener("click", () => {
+    clearAllDice();
+  });
+}
 
   toggleSettingsButton.addEventListener("click", () => {
     settingsBody.classList.remove("hud-overlay-hidden");
