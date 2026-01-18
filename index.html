@@ -9,87 +9,58 @@
 <script src="https://cdn.jsdelivr.net/npm/cannon@0.6.2/build/cannon.min.js"></script>
 </head>
 <body>
-<div class="app">
-<header class="app-header">
-<h1 class="app-title">D&D 3D Dice Roller</h1>
-<div class="roll-result">
-Last roll:
-<span id="roll-result-value">–</span>
-</div>
-<div id="roll-history" class="roll-history"></div>
-</header>
-<main class="app-main">
-<section class="tray-section">
-<div id="renderer-container"></div>
-</section>
-<aside class="controls-section">
-<div class="controls-group">
-<h2>Players</h2>
-<div class="player-buttons">
-<button data-player="Emp">Emp</button>
-<button data-player="Bill">Bill</button>
-</div>
-</div>
-<div class="controls-group">
-<h2>Dice</h2>
-<div class="dice-buttons">
-          <button data-die="d2">d2</button>
-          <button data-die="d3">d3</button>
-          <button data-die="d5">d5</button>
-<button data-die="d4">d4</button>
-<button data-die="d6">d6</button>
-<button data-die="d8">d8</button>
-<button data-die="d10">d10</button>
-<button data-die="d12">d12</button>
-          <button data-die="d20">d20</button>
-          <button data-die="d100">d100</button>
-</div>
-        <button id="roll-selected" class="roll-selected-button">Roll selected</button>
-<button id="clear-dice" class="clear-dice-button">Clear dice</button>
-</div>
-<div class="controls-group">
-<div class="settings-header">
-<h2>Settings</h2>
-<button id="toggle-settings" class="settings-toggle">Customize</button>
-</div>
-<div id="settings-body" class="settings-body settings-body-hidden">
-<div class="setting-row">
-<label for="dice-color">Dice color</label>
-<input type="color" id="dice-color" value="#3d8bfd">
-</div>
-<div class="setting-row">
-<label for="number-color">Number color</label>
-<input type="color" id="number-color" value="#ffffff">
-</div>
-<div class="setting-row">
-<label for="texture-style">Texture</label>
-<select id="texture-style">
-<option value="solid">Solid</option>
-<option value="marble">Marbled</option>
-<option value="metal">Metallic</option>
-<option value="crystal">Crystal</option>
-<option value="wood">Wood</option>
-</select>
-</div>
-<div class="profiles">
-<div class="profiles-header">Profiles</div>
-<div class="setting-row">
-<label for="profile-select">Choose</label>
-<select id="profile-select"></select>
-</div>
-<div class="setting-row">
-<label for="profile-name">Name</label>
-<input type="text" id="profile-name" placeholder="Profile name">
-</div>
-<div class="profiles-buttons">
-<button id="apply-profile">Apply</button>
-<button id="save-profile">Save</button>
-</div>
-</div>
-</div>
-</div>
-</aside>
-</main>
+<div class="hud-app">
+  <header class="hud-header">
+    <div class="dice-row">
+      <div class="dice-scroll">
+        <button data-die="d2">d2</button>
+        <button data-die="d3">d3</button>
+        <button data-die="d5">d5</button>
+        <button data-die="d4">d4</button>
+        <button data-die="d6">d6</button>
+        <button data-die="d8">d8</button>
+        <button data-die="d10">d10</button>
+        <button data-die="d12">d12</button>
+        <button data-die="d20">d20</button>
+        <button data-die="d100">d100</button>
+      </div>
+      <button id="roll-selected" class="hud-roll">ROLL</button>
+    </div>
+  </header>
+  <main class="hud-main">
+    <div id="renderer-container" class="hud-canvas"></div>
+  </main>
+  <footer class="hud-footer">
+    <button id="open-settings" class="hud-settings">⚙️</button>
+    <div id="roll-log" class="hud-log"></div>
+  </footer>
+  <div id="settings-overlay" class="hud-overlay hud-overlay-hidden">
+    <div class="hud-overlay-content">
+      <div class="hud-overlay-header">
+        <div>Dice Profiles</div>
+        <button id="close-settings" class="hud-close">✕</button>
+      </div>
+      <div class="hud-overlay-body">
+        <div class="bag-form">
+          <input type="text" id="bag-name" placeholder="Bag name">
+          <select id="bag-style">
+            <option value="plastic">Plastic</option>
+            <option value="metal">Metallic</option>
+            <option value="marbled">Marble</option>
+            <option value="crystal">Crystal</option>
+          </select>
+          <div class="bag-colors">
+            <label>Die</label>
+            <input type="color" id="bag-dice-color" value="#3d8bfd">
+            <label>Number</label>
+            <input type="color" id="bag-number-color" value="#ffffff">
+          </div>
+          <button id="bag-save" class="hud-primary">Save Bag</button>
+        </div>
+        <div id="bags-list" class="bags-list"></div>
+      </div>
+    </div>
+  </div>
 </div>
 <script src="main.js"></script>
 </body>

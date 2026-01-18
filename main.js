@@ -56,19 +56,16 @@ renderer.shadowMap.enabled = true;
 rendererContainer.appendChild(renderer.domElement);
   renderer.domElement.style.touchAction = "none";
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.55);
-scene.add(ambientLight);
-
-  const spotLight = new THREE.SpotLight(0xffffff, 1.4, 50, Math.PI / 6, 0.3);
-spotLight.position.set(8, 15, 6);
-spotLight.castShadow = true;
-spotLight.shadow.mapSize.width = 1024;
-spotLight.shadow.mapSize.height = 1024;
-scene.add(spotLight);
-
-  const rimLight = new THREE.PointLight(0x93c5fd, 0.7, 40);
-  rimLight.position.set(-10, 12, 10);
-  scene.add(rimLight);
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+  scene.add(ambientLight);
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+  dirLight.position.set(5, 10, 5);
+  dirLight.castShadow = true;
+  dirLight.shadow.mapSize.width = 1024;
+  dirLight.shadow.mapSize.height = 1024;
+  scene.add(dirLight);
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x1f2937, 0.5);
+  scene.add(hemiLight);
 
 world = new CANNON.World();
 world.gravity.set(0, -30, 0);
@@ -247,7 +244,12 @@ function rollSelectedDice() {
     const type = keys[i];
     const count = selectionCounts[type];
     for (let j = 0; j < count; j += 1) {
-      spawnDie(type, swipeVector, rollId);
+      if (type === "d100") {
+        const gid = "D100-" + Math.floor(Math.random() * 1e9).toString(36);
+        spawnDie("d100", swipeVector, rollId, gid);
+      } else {
+        spawnDie(type, swipeVector, rollId);
+      }
     }
   }
   clearSelection();
@@ -377,19 +379,18 @@ addWallBody(halfW + wallThickness / 2, wallHeight / 2, 0, traySize.depth + wallT
   addLip(halfW + wallThickness / 2, 0, traySize.depth + wallThickness * 1.5, Math.PI / 2);
 }
 
-function createDieMesh(type) {
+function createDieMesh(type, style) {
 let geometry;
 let radius;
 
 switch (type) {
     case "d2":
       radius = 0.5;
-      geometry = new THREE.CylinderGeometry(0.1, 0.1, 1.2, 4);
-      geometry.scale(1.2, 0.2, 1.2);
+      geometry = new THREE.CylinderGeometry(1, 1, 0.2, 32, 1, false);
       break;
     case "d3":
-      radius = 0.6;
-      geometry = new THREE.CylinderGeometry(0.5, 0.5, 1.5, 3);
+      radius = 0.5;
+      geometry = new THREE.BoxGeometry(1, 1, 1);
       break;
     case "d5":
       radius = 0.6;
@@ -408,9 +409,17 @@ radius = 0.55;
 geometry = new THREE.OctahedronGeometry(radius);
 break;
 case "d10":
-      radius = 0.6;
-      geometry = null;
+      radius = 0.5;
+      geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 10, 1, true);
 break;
+    case "d10tens":
+      radius = 0.5;
+      geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 10, 1, true);
+      break;
+    case "d10ones":
+      radius = 0.5;
+      geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 10, 1, true);
+      break;
 case "d12":
 radius = 0.6;
 geometry = new THREE.DodecahedronGeometry(radius);
@@ -420,7 +429,7 @@ radius = 0.6;
 geometry = new THREE.IcosahedronGeometry(radius);
 break;
     case "d100":
-      radius = 0.6;
+      radius = 0.5;
       geometry = new THREE.IcosahedronGeometry(radius);
       break;
 default:
@@ -428,58 +437,100 @@ radius = 0.6;
 geometry = new THREE.BoxGeometry(radius * 2, radius * 2, radius * 2);
 }
 
-  if (type === "d10") {
-    const material = createMaterialForCurrentStyle();
-    const heightHalf = radius * 1.1;
-    const coneGeometry = new THREE.ConeGeometry(radius * 0.9, heightHalf, 5);
-    const top = new THREE.Mesh(coneGeometry, material);
-    const bottom = new THREE.Mesh(coneGeometry, material);
-    top.position.y = heightHalf / 2;
-    bottom.position.y = -heightHalf / 2;
-    bottom.rotation.x = Math.PI;
-    top.castShadow = true;
-    top.receiveShadow = true;
-    bottom.castShadow = true;
-    bottom.receiveShadow = true;
-    const group = new THREE.Group();
-    group.add(top);
-    group.add(bottom);
-    return { mesh: group, radius };
-  }
+  // use cylinder-based approximation for d10 above
 
   let material;
-  if (type === "d6") {
-    // Switch d6 to dynamic atlas too for consistency
-    material = createMaterialForCurrentStyle();
-  } else {
-    material = type === "d2" || type === "d3" || type === "d5"
-      ? new THREE.MeshStandardMaterial({ color: new THREE.Color(diceColor), metalness: 0.8, roughness: 0.2 })
-      : createMaterialForCurrentStyle();
-  }
+  material = createDieMaterial(style.texture, style.diceColor);
 
-  const mesh = new THREE.Mesh(geometry, material);
+  let mesh;
+  if (type === "d2") {
+    const sideMaterial = createDieMaterial(style.texture, style.diceColor);
+    const bgHex = "#" + new THREE.Color(style.diceColor).getHexString();
+    const numHex = getHighContrastNumberColor(style.diceColor, style.numberColor);
+    const headsTex = createTextTexture("Heads", bgHex, numHex);
+    const tailsTex = createTextTexture("Tails", bgHex, numHex);
+    const capTop = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: headsTex,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 0.01
+    });
+    const capBottom = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: tailsTex,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 0.01
+    });
+    mesh = new THREE.Mesh(geometry, [sideMaterial, capTop, capBottom]);
+  } else {
+    mesh = new THREE.Mesh(geometry, material);
+  }
   mesh.castShadow = true;
   mesh.receiveShadow = true;
 
-  if (type !== "d2" && type !== "d3" && type !== "d5") {
-    const faceCount = getSidesForType(type);
-    const atlas = createNumberAtlas(faceCount, numberColor);
-    applyAtlasUVs(mesh.geometry, faceCount, atlas.tiles, type);
+  if (type === "d3") {
+    const labels = ["1", "1", "2", "2", "3", "3"];
+    const atlas = createLabelAtlas(labels, getHighContrastNumberColor(style.diceColor, style.numberColor));
+    applyAtlasUVs(mesh.geometry, labels.length, atlas.tiles, "d6");
     mesh.material.map = atlas.texture;
+    mesh.material.polygonOffset = true;
+    mesh.material.polygonOffsetFactor = 1;
+    mesh.material.polygonOffsetUnits = 0.01;
     mesh.material.needsUpdate = true;
+  } else if (type !== "d2" && type !== "d5") {
+    const faceCount = getSidesForType(type);
+    let atlas;
+    if (type === "d10" || type === "d10ones") {
+      const labels = ["0","1","2","3","4","5","6","7","8","9"];
+      atlas = createLabelAtlas(labels, getHighContrastNumberColor(style.diceColor, style.numberColor));
+    } else if (type === "d10tens") {
+      const labels = ["00","10","20","30","40","50","60","70","80","90"];
+      atlas = createLabelAtlas(labels, getHighContrastNumberColor(style.diceColor, style.numberColor));
+    } else {
+      atlas = createNumberAtlas(faceCount, getHighContrastNumberColor(style.diceColor, style.numberColor));
+    }
+    applyAtlasUVs(mesh.geometry, faceCount, atlas.tiles, type);
+    if (Array.isArray(mesh.material)) {
+      // d2 only uses array material; others are single
+    } else {
+      mesh.material.map = atlas.texture;
+      mesh.material.polygonOffset = true;
+      mesh.material.polygonOffsetFactor = 1;
+      mesh.material.polygonOffsetUnits = 0.01;
+      mesh.material.needsUpdate = true;
+    }
   }
+
+  // normalize scale to ~1 unit bounding box
+  mesh.geometry.computeBoundingBox();
+  const bb = mesh.geometry.boundingBox;
+  const maxDim = Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z);
+  const scaleFactor = maxDim > 0 ? (1 / maxDim) : 1;
+  mesh.scale.set(scaleFactor, scaleFactor, scaleFactor);
 
   return { mesh, radius };
 }
 
-function spawnDie(type, velocityOverride, rollId) {
+function spawnDie(type, velocityOverride, rollId, d100GroupId) {
 const style = {
 diceColor,
 numberColor,
 texture: currentTexture,
 profileName: currentProfileName
 };
-const { mesh, radius } = createDieMesh(type);
+  const actualType = type;
+
+  // Handle d100 by spawning two d10 dice (tens and ones)
+  if (type === "d100") {
+    const gid = d100GroupId || ("g" + Math.floor(Math.random() * 1e9).toString(36));
+    spawnDie("d10tens", velocityOverride, rollId, gid);
+    spawnDie("d10ones", velocityOverride, rollId, gid);
+    return;
+  }
+
+  const { mesh, radius } = createDieMesh(actualType, style);
 scene.add(mesh);
 
   const halfD = traySize.depth / 2;
@@ -490,12 +541,10 @@ const laneIndex = Math.floor(Math.random() * 3);
   const spawnZ = frontThirdCenter + (Math.random() - 0.5) * (traySize.depth / 12);
 
 let bodyShape;
-if (type === "d6") {
+if (actualType === "d6" || actualType === "d3") {
 bodyShape = new CANNON.Box(new CANNON.Vec3(radius, radius, radius));
-} else if (type === "d2") {
-  bodyShape = new CANNON.Cylinder(0.1, 0.1, 1.2, 4);
-} else if (type === "d3") {
-  bodyShape = new CANNON.Cylinder(0.5, 0.5, 1.5, 3);
+} else if (actualType === "d2") {
+  bodyShape = new CANNON.Cylinder(0.5, 0.5, 0.2, 32);
 } else {
 bodyShape = new CANNON.Sphere(radius);
 }
@@ -535,7 +584,7 @@ body.angularVelocity.set(
 world.addBody(body);
 
 const die = {
-type,
+  type: actualType,
 mesh,
 body,
 sides: getSidesForType(type),
@@ -547,7 +596,9 @@ diceColor: style.diceColor,
 numberColor: style.numberColor,
 texture: style.texture,
   profileName: style.profileName,
-  rollId: rollId || null
+  rollId: rollId || null,
+  d100GroupId: d100GroupId || null,
+  d100Reported: false
 };
 
   // Face numbers via dynamic canvas texture atlas are applied in createDieMesh
@@ -561,6 +612,10 @@ switch (type) {
       return 2;
     case "d3":
       return 3;
+    case "d10tens":
+      return 10;
+    case "d10ones":
+      return 10;
     case "d5":
       return 5;
 case "d4":
@@ -632,12 +687,48 @@ die.hasResult = true;
           die.body.angularVelocity.set(0, 0, 0);
           die.body.linearDamping = 0.7;
           die.body.angularDamping = 0.7;
-          updateResultDisplay(die, die.value);
+          if (die.type !== "d10tens" && die.type !== "d10ones") {
+            updateResultDisplay(die, die.value);
+          }
 }
 } else {
 die.settledTime = 0;
 }
 }
+
+  // Combine d100 groups if both dice (tens and ones) have settled
+  const groups = {};
+  for (let i = 0; i < dice.length; i += 1) {
+    const die = dice[i];
+    if (die.d100GroupId) {
+      if (!groups[die.d100GroupId]) {
+        groups[die.d100GroupId] = { tens: null, ones: null };
+      }
+      if (die.type === "d10tens") groups[die.d100GroupId].tens = die;
+      if (die.type === "d10ones") groups[die.d100GroupId].ones = die;
+    }
+  }
+  const ids = Object.keys(groups);
+  for (let g = 0; g < ids.length; g += 1) {
+    const grp = groups[ids[g]];
+    if (grp.tens && grp.ones && grp.tens.hasResult && grp.ones.hasResult && !grp.tens.d100Reported && !grp.ones.d100Reported) {
+      let tens = grp.tens.value;
+      let ones = grp.ones.value;
+      if (tens === 10) tens = 0;
+      if (ones === 10) ones = 0;
+      let combined = tens * 10 + ones;
+      if (combined === 0) combined = 100;
+      const synthetic = {
+        type: "d100",
+        profileName: grp.tens.profileName,
+        diceColor: grp.tens.diceColor,
+        rollId: grp.tens.rollId
+      };
+      updateResultDisplay(synthetic, combined);
+      grp.tens.d100Reported = true;
+      grp.ones.d100Reported = true;
+    }
+  }
 }
 
 function updateResultDisplay(die, value) {
@@ -665,18 +756,72 @@ const die = dice[i];
     } else if (die.mesh.material) {
       die.mesh.material.dispose();
     }
-    if (die.type === "d2" || die.type === "d3" || die.type === "d5") {
-      die.mesh.material = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(diceColor),
-        metalness: 0.8,
-        roughness: 0.2
+    const numHex = getHighContrastNumberColor(die.diceColor, die.numberColor);
+    if (die.type === "d2") {
+      const sideMaterial = createDieMaterial(die.texture, die.diceColor);
+      const bgHex = "#" + new THREE.Color(die.diceColor).getHexString();
+      const headsTex = createTextTexture("Heads", bgHex, numHex);
+      const tailsTex = createTextTexture("Tails", bgHex, numHex);
+      const capTop = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: headsTex,
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 0.01
       });
+      const capBottom = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: tailsTex,
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 0.01
+      });
+      die.mesh.material = [sideMaterial, capTop, capBottom];
+    } else if (die.type === "d3") {
+      die.mesh.material = createDieMaterial(die.texture, die.diceColor);
+      const labels = ["1", "1", "2", "2", "3", "3"];
+      const atlas = createLabelAtlas(labels, numHex);
+      applyAtlasUVs(die.mesh.geometry, labels.length, atlas.tiles, "d6");
+      die.mesh.material.map = atlas.texture;
+      die.mesh.material.polygonOffset = true;
+      die.mesh.material.polygonOffsetFactor = 1;
+      die.mesh.material.polygonOffsetUnits = 0.01;
+      die.mesh.material.needsUpdate = true;
+    } else if (die.type === "d10tens") {
+      die.mesh.material = createDieMaterial(die.texture, die.diceColor);
+      const labels = ["00","10","20","30","40","50","60","70","80","90"];
+      const atlas = createLabelAtlas(labels, numHex);
+      applyAtlasUVs(die.mesh.geometry, labels.length, atlas.tiles, "d10");
+      die.mesh.material.map = atlas.texture;
+      die.mesh.material.polygonOffset = true;
+      die.mesh.material.polygonOffsetFactor = 1;
+      die.mesh.material.polygonOffsetUnits = 0.01;
+      die.mesh.material.needsUpdate = true;
+    } else if (die.type === "d10ones") {
+      die.mesh.material = createDieMaterial(die.texture, die.diceColor);
+      const labels = ["0","1","2","3","4","5","6","7","8","9"];
+      const atlas = createLabelAtlas(labels, numHex);
+      applyAtlasUVs(die.mesh.geometry, labels.length, atlas.tiles, "d10");
+      die.mesh.material.map = atlas.texture;
+      die.mesh.material.polygonOffset = true;
+      die.mesh.material.polygonOffsetFactor = 1;
+      die.mesh.material.polygonOffsetUnits = 0.01;
+      die.mesh.material.needsUpdate = true;
     } else {
-      die.mesh.material = createMaterialForCurrentStyle();
+      die.mesh.material = createDieMaterial(die.texture, die.diceColor);
       const faceCount = getSidesForType(die.type);
-      const atlas = createNumberAtlas(faceCount, numberColor);
+      let atlas;
+      if (die.type === "d10") {
+        const labels = ["0","1","2","3","4","5","6","7","8","9"];
+        atlas = createLabelAtlas(labels, numHex);
+      } else {
+        atlas = createNumberAtlas(faceCount, numHex);
+      }
       applyAtlasUVs(die.mesh.geometry, faceCount, atlas.tiles, die.type);
       die.mesh.material.map = atlas.texture;
+      die.mesh.material.polygonOffset = true;
+      die.mesh.material.polygonOffsetFactor = 1;
+      die.mesh.material.polygonOffsetUnits = 0.01;
       die.mesh.material.needsUpdate = true;
     }
 }
@@ -692,10 +837,15 @@ function getDieValue(die) {
     return dot >= 0 ? 1 : 2;
   }
   if (die.type === "d3") {
-    return 1 + Math.floor(Math.random() * 3);
+    const v6 = getD6ValueFromOrientation(die.body);
+    return Math.ceil(v6 / 2);
   }
   if (die.type === "d5") {
     return 1 + Math.floor(Math.random() * 5);
+  }
+  if (die.type === "d10tens" || die.type === "d10ones") {
+    const v = 1 + Math.floor(Math.random() * 10);
+    return v;
   }
   if (die.type === "d4") {
     const normals = [
@@ -761,6 +911,62 @@ function createNumberAtlas(faceCount, colorHex) {
   return { canvas, texture, tiles, cols, rows };
 }
 
+function createLabelAtlas(labels, colorHex) {
+  const faceCount = labels.length;
+  const cols = Math.ceil(Math.sqrt(faceCount));
+  const rows = Math.ceil(faceCount / cols);
+  const size = 1024;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, size, size);
+  const cellW = size / cols;
+  const cellH = size / rows;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold " + Math.floor(Math.min(cellW, cellH) * 0.6) + "px system-ui";
+  ctx.fillStyle = colorHex;
+  const tiles = [];
+  for (let i = 0; i < faceCount; i += 1) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = col * cellW;
+    const y = row * cellH;
+    tiles.push({
+      u0: x / size,
+      v0: y / size,
+      u1: (x + cellW) / size,
+      v1: (y + cellH) / size
+    });
+    ctx.fillText(String(labels[i]), x + cellW / 2, y + cellH / 2);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return { canvas, texture, tiles, cols, rows };
+}
+
+function createTextTexture(text, bgHex, textHex) {
+  const size = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = bgHex;
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = textHex;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold 160px system-ui";
+  ctx.fillText(text, size / 2, size / 2);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return texture;
+}
 function groupTrianglesByNormal(geometry, tolerance) {
   const pos = geometry.attributes.position;
   const index = geometry.index ? geometry.index.array : null;
@@ -897,45 +1103,138 @@ function applyAtlasUVs(geometry, faceCount, tiles, type) {
   uvAttr.needsUpdate = true;
 }
 
+function hexToRgb(hex) {
+  const h = hex.replace("#", "");
+  const bigint = parseInt(h.length === 3 ? h.split("").map(x => x + x).join("") : h, 16);
+  const r = (bigint >> 16) & 255;
+  const g = (bigint >> 8) & 255;
+  const b = bigint & 255;
+  return { r, g, b };
+}
+
+function rgbToHex(r, g, b) {
+  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+
+function getLuminance(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  const sr = r / 255, sg = g / 255, sb = b / 255;
+  const a = [sr, sg, sb].map(v => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
+}
+
+function lightenHex(hex, amount) {
+  const { r, g, b } = hexToRgb(hex);
+  const nr = Math.min(255, Math.floor(r + (255 - r) * amount));
+  const ng = Math.min(255, Math.floor(g + (255 - g) * amount));
+  const nb = Math.min(255, Math.floor(b + (255 - b) * amount));
+  return rgbToHex(nr, ng, nb);
+}
+
+function getHighContrastNumberColor(baseHex, preferredHex) {
+  const baseLum = getLuminance(baseHex);
+  const prefLum = getLuminance(preferredHex);
+  const contrast = (Math.max(baseLum, prefLum) + 0.05) / (Math.min(baseLum, prefLum) + 0.05);
+  if (contrast >= 4.5) return preferredHex;
+  return baseLum > 0.5 ? "#000000" : "#ffffff";
+}
+
+function perlin2D(width, height, scale) {
+  const grad = [];
+  for (let y = 0; y <= height; y += 1) {
+    grad[y] = [];
+    for (let x = 0; x <= width; x += 1) {
+      const a = Math.random() * Math.PI * 2;
+      grad[y][x] = { x: Math.cos(a), y: Math.sin(a) };
+    }
+  }
+  function dotGrid(ix, iy, x, y) {
+    const g = grad[iy][ix];
+    return (x - ix) * g.x + (y - iy) * g.y;
+  }
+  function fade(t) {
+    return t * t * t * (t * (t * 6 - 15) + 10);
+  }
+  const out = new Float32Array(width * height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const xf = x / scale;
+      const yf = y / scale;
+      const x0 = Math.floor(xf);
+      const y0 = Math.floor(yf);
+      const x1 = x0 + 1;
+      const y1 = y0 + 1;
+      const sx = fade(xf - x0);
+      const sy = fade(yf - y0);
+      const n0 = dotGrid(x0, y0, xf, yf);
+      const n1 = dotGrid(x1, y0, xf, yf);
+      const ix0 = n0 + sx * (n1 - n0);
+      const n2 = dotGrid(x0, y1, xf, yf);
+      const n3 = dotGrid(x1, y1, xf, yf);
+      const ix1 = n2 + sx * (n3 - n2);
+      const v = ix0 + sy * (ix1 - ix0);
+      out[y * width + x] = v;
+    }
+  }
+  return out;
+}
+
+function createMarbleCanvas(hex) {
+  const size = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const img = ctx.createImageData(size, size);
+  const tint = lightenHex(hex, 0.4);
+  const base = hexToRgb(hex);
+  const light = hexToRgb(tint);
+  const noise = perlin2D(size, size, 64);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const u = x / size - 0.5;
+      const v = y / size - 0.5;
+      const r = Math.sqrt(u * u + v * v);
+      const a = Math.atan2(v, u);
+      const sw = Math.sin(10 * r + a * 3);
+      const n = noise[y * size + x];
+      const t = Math.min(1, Math.max(0, 0.5 + 0.5 * (sw + n)));
+      const rr = Math.floor(base.r * (1 - t) + light.r * t);
+      const gg = Math.floor(base.g * (1 - t) + light.g * t);
+      const bb = Math.floor(base.b * (1 - t) + light.b * t);
+      const idx = (y * size + x) * 4;
+      img.data[idx + 0] = rr;
+      img.data[idx + 1] = gg;
+      img.data[idx + 2] = bb;
+      img.data[idx + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+function createDieMaterial(style, colorHex) {
+  const color = new THREE.Color(colorHex);
+  const s = (style || "").toLowerCase();
+  if (s === "metallic" || s === "metal") {
+    return new THREE.MeshStandardMaterial({ color, metalness: 0.9, roughness: 0.1 });
+  }
+  if (s === "crystal") {
+    return new THREE.MeshPhysicalMaterial({ color, metalness: 0.05, roughness: 0.1, transmission: 0.9, thickness: 0.6, opacity: 0.6, transparent: true });
+  }
+  if (s === "marbled" || s === "marble") {
+    const canvas = createMarbleCanvas("#" + color.getHexString());
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    return new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.2, roughness: 0.6, map: tex });
+  }
+  return new THREE.MeshStandardMaterial({ color, metalness: 0.1, roughness: 0.4 });
+}
+
 function createMaterialForCurrentStyle() {
-const color = new THREE.Color(diceColor);
-if (currentTexture === "crystal") {
-return new THREE.MeshPhysicalMaterial({
-color,
-      metalness: 0.05,
-      roughness: 0.1,
-      transmission: 0.7,
-      thickness: 0.6,
-clearcoat: 0.9,
-clearcoatRoughness: 0.1
-});
-}
-if (currentTexture === "metal") {
-return new THREE.MeshStandardMaterial({
-color,
-      metalness: 0.9,
-      roughness: 0.25
-});
-}
-if (currentTexture === "wood") {
-return new THREE.MeshStandardMaterial({
-color,
-      metalness: 0.15,
-      roughness: 0.75
-});
-}
-if (currentTexture === "marble") {
-return new THREE.MeshStandardMaterial({
-color,
-      metalness: 0.2,
-      roughness: 0.3
-});
-}
-return new THREE.MeshStandardMaterial({
-color,
-    metalness: 0.15,
-    roughness: 0.35
-});
+  return createDieMaterial(currentTexture, diceColor);
 }
 
 function createD6Materials() {
