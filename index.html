@@ -41,7 +41,14 @@
         <button id="close-settings" class="hud-close">✕</button>
       </div>
       <div class="hud-overlay-body">
-        <div class="bag-form">
+        <div class="overlay-split">
+          <div class="preview-pane">
+            <div id="preview-stage">
+              <canvas id="preview-canvas"></canvas>
+              <div class="preview-pedestal"></div>
+            </div>
+          </div>
+          <div class="bag-form">
           <input type="text" id="bag-name" placeholder="Bag name">
           <select id="bag-style">
             <option value="plastic">Plastic</option>
@@ -55,7 +62,11 @@
             <label>Number</label>
             <input type="color" id="bag-number-color" value="#ffffff">
           </div>
-          <button id="bag-save" class="hud-primary">Save Bag</button>
+            <div class="bag-actions">
+              <button id="bag-add" class="hud-primary">Add New Profile</button>
+              <button id="bag-save" class="hud-primary">Save Bag</button>
+            </div>
+          </div>
         </div>
         <div id="bags-list" class="bags-list"></div>
       </div>

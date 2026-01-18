@@ -1,9 +1,9 @@
 const rendererContainer = document.getElementById("renderer-container");
-const resultValueEl = document.getElementById("roll-result-value");
-const rollHistoryEl = document.getElementById("roll-history");
+const resultValueEl = document.getElementById("roll-result-value") || { style: {}, textContent: "" };
+const rollLogEl = document.getElementById("roll-log");
 const diceColorInput = document.getElementById("dice-color");
 const numberColorInput = document.getElementById("number-color");
-const diceButtons = document.querySelectorAll(".dice-buttons button");
+const diceButtons = document.querySelectorAll(".dice-scroll button");
 const rollSelectedButton = document.getElementById("roll-selected");
 const playerButtons = document.querySelectorAll(".player-buttons button");
 const textureStyleSelect = document.getElementById("texture-style");
@@ -12,8 +12,22 @@ const profileNameInput = document.getElementById("profile-name");
 const applyProfileButton = document.getElementById("apply-profile");
 const saveProfileButton = document.getElementById("save-profile");
 const clearDiceButton = document.getElementById("clear-dice");
-const toggleSettingsButton = document.getElementById("toggle-settings");
-const settingsBody = document.getElementById("settings-body");
+const toggleSettingsButton = document.getElementById("open-settings");
+const settingsBody = document.getElementById("settings-overlay");
+const closeSettingsButton = document.getElementById("close-settings");
+const bagNameInput = document.getElementById("bag-name");
+const bagStyleSelect = document.getElementById("bag-style");
+const bagDiceColorInput = document.getElementById("bag-dice-color");
+const bagNumberColorInput = document.getElementById("bag-number-color");
+const bagSaveButton = document.getElementById("bag-save");
+const bagAddButton = document.getElementById("bag-add");
+const bagsListEl = document.getElementById("bags-list");
+const previewCanvas = document.getElementById("preview-canvas");
+let previewScene = null;
+let previewCamera = null;
+let previewRenderer = null;
+let previewDie = null;
+let previewRunning = false;
 
 let diceColor = diceColorInput.value;
 let numberColor = numberColorInput.value;
@@ -175,14 +189,129 @@ clearDiceButton.addEventListener("click", () => {
 clearAllDice();
 });
 
-toggleSettingsButton.addEventListener("click", () => {
-const isHidden = settingsBody.classList.toggle("settings-body-hidden");
-toggleSettingsButton.textContent = isHidden ? "Customize" : "Hide";
-});
+  toggleSettingsButton.addEventListener("click", () => {
+    settingsBody.classList.remove("hud-overlay-hidden");
+  });
+  if (closeSettingsButton) {
+    closeSettingsButton.addEventListener("click", () => {
+      settingsBody.classList.add("hud-overlay-hidden");
+    });
+  }
+  if (bagSaveButton) {
+    bagSaveButton.addEventListener("click", () => {
+      const name = (bagNameInput.value || "").trim();
+      if (!name) return;
+      profiles[name] = {
+        diceColor: bagDiceColorInput.value || "#3d8bfd",
+        numberColor: bagNumberColorInput.value || "#ffffff",
+        texture: (bagStyleSelect.value || "plastic")
+      };
+      saveProfiles();
+      renderProfilesCards();
+    });
+  }
+  if (bagAddButton) {
+    bagAddButton.addEventListener("click", () => {
+      const name = (bagNameInput.value || "").trim();
+      const finalName = name || ("Bag " + (Object.keys(profiles).length + 1));
+      profiles[finalName] = {
+        diceColor: bagDiceColorInput.value || "#3d8bfd",
+        numberColor: bagNumberColorInput.value || "#ffffff",
+        texture: (bagStyleSelect.value || "plastic")
+      };
+      saveProfiles();
+      renderProfilesCards();
+      bagNameInput.value = "";
+    });
+  }
+  if (bagStyleSelect && bagDiceColorInput && bagNumberColorInput) {
+    const updatePreviewFromInputs = () => {
+      updatePreviewDie(bagStyleSelect.value, bagDiceColorInput.value, bagNumberColorInput.value);
+    };
+    bagStyleSelect.addEventListener("change", updatePreviewFromInputs);
+    bagDiceColorInput.addEventListener("input", updatePreviewFromInputs);
+    bagNumberColorInput.addEventListener("input", updatePreviewFromInputs);
+  }
+  if (settingsBody) {
+    settingsBody.addEventListener("transitionend", () => {
+      if (!settingsBody.classList.contains("hud-overlay-hidden")) {
+        initPreview();
+      }
+    });
+  }
 
 loadProfiles();
+renderProfilesCards();
 
-resultValueEl.style.color = numberColor;
+if (resultValueEl && resultValueEl.style) {
+  resultValueEl.style.color = numberColor;
+}
+
+function initPreview() {
+  if (!previewCanvas || previewScene) {
+    previewRunning = true;
+    return;
+  }
+  const rect = previewCanvas.getBoundingClientRect();
+  previewScene = new THREE.Scene();
+  previewScene.background = null;
+  previewCamera = new THREE.PerspectiveCamera(40, (rect.width || 1) / (rect.height || 1), 0.1, 50);
+  previewCamera.position.set(0, 1.5, 3.2);
+  previewCamera.lookAt(0, 0.5, 0);
+  previewRenderer = new THREE.WebGLRenderer({ canvas: previewCanvas, antialias: true, alpha: true });
+  previewRenderer.setPixelRatio(window.devicePixelRatio || 1);
+  previewRenderer.setSize(rect.width, rect.height);
+  previewRenderer.shadowMap.enabled = true;
+  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+  const dir = new THREE.DirectionalLight(0xffffff, 1);
+  dir.position.set(3, 6, 3);
+  dir.castShadow = true;
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x1f2937, 0.6);
+  previewScene.add(ambient);
+  previewScene.add(dir);
+  previewScene.add(hemi);
+  const baseStyle = bagStyleSelect ? bagStyleSelect.value : currentTexture;
+  const baseDice = bagDiceColorInput ? bagDiceColorInput.value : diceColor;
+  const baseNum = bagNumberColorInput ? bagNumberColorInput.value : numberColor;
+  const geo = new THREE.IcosahedronGeometry(0.6);
+  previewDie = new THREE.Mesh(geo, createDieMaterial(baseStyle, baseDice));
+  previewDie.castShadow = true;
+  previewDie.receiveShadow = true;
+  const faceCount = 20;
+  const atlas = createNumberAtlas(faceCount, getHighContrastNumberColor(baseDice, baseNum));
+  applyAtlasUVs(previewDie.geometry, faceCount, atlas.tiles, "d20");
+  previewDie.material.map = atlas.texture;
+  previewDie.material.needsUpdate = true;
+  previewScene.add(previewDie);
+  previewRunning = true;
+  requestAnimationFrame(previewLoop);
+}
+
+function updatePreviewDie(styleName, diceHex, numberHex) {
+  if (!previewDie) {
+    initPreview();
+    return;
+  }
+  const mat = createDieMaterial(styleName, diceHex);
+  const faceCount = 20;
+  const atlas = createNumberAtlas(faceCount, getHighContrastNumberColor(diceHex, numberHex));
+  applyAtlasUVs(previewDie.geometry, faceCount, atlas.tiles, "d20");
+  mat.map = atlas.texture;
+  mat.polygonOffset = true;
+  mat.polygonOffsetFactor = 1;
+  mat.polygonOffsetUnits = 0.01;
+  previewDie.material.dispose();
+  previewDie.material = mat;
+}
+
+function previewLoop() {
+  if (!previewRunning || !previewRenderer || !previewScene || !previewCamera) return;
+  if (previewDie) {
+    previewDie.rotation.y += 0.01;
+  }
+  previewRenderer.render(previewScene, previewCamera);
+  requestAnimationFrame(previewLoop);
+}
 
 lastTime = performance.now();
 requestAnimationFrame(loop);
@@ -1288,7 +1417,7 @@ function createD6Materials() {
 }
 
 function addRollToHistory(die, value) {
-if (!rollHistoryEl) {
+if (!rollLogEl) {
 return;
 }
 const entry = {
@@ -1302,36 +1431,20 @@ rollHistory.push(entry);
 if (rollHistory.length > maxHistoryEntries) {
 rollHistory.shift();
 }
-renderRollHistory();
+renderRollLog();
 }
 
-function renderRollHistory() {
-  rollHistoryEl.innerHTML = "";
-  const groups = {};
-  for (let i = 0; i < rollHistory.length; i += 1) {
-    const e = rollHistory[i];
-    const gid = e.rollId || ("g" + i);
-    if (!groups[gid]) {
-      groups[gid] = [];
-    }
-    groups[gid].push(e);
-  }
-  const ids = Object.keys(groups);
-  for (let i = 0; i < ids.length; i += 1) {
-    const gid = ids[i];
-    const container = document.createElement("div");
-    container.className = "roll-group";
-    const items = groups[gid];
-    for (let j = 0; j < items.length; j += 1) {
-      const entry = items[j];
-      const chip = document.createElement("div");
-      chip.className = "roll-chip";
-      chip.textContent = (entry.profileName ? entry.profileName + " " : "") + entry.type + ": " + entry.value;
-      chip.style.borderColor = entry.color;
-      chip.style.color = entry.color;
-      container.appendChild(chip);
-    }
-    rollHistoryEl.appendChild(container);
+function renderRollLog() {
+  rollLogEl.innerHTML = "";
+  const last = rollHistory.slice(-3);
+  for (let i = 0; i < last.length; i += 1) {
+    const entry = last[i];
+    const chip = document.createElement("div");
+    chip.className = "log-chip";
+    chip.textContent = (entry.profileName ? entry.profileName + " " : "") + entry.type + ": " + entry.value;
+    chip.style.borderColor = entry.color;
+    chip.style.color = entry.color;
+    rollLogEl.appendChild(chip);
   }
 }
 
@@ -1429,6 +1542,67 @@ window.localStorage.setItem("diceProfiles", JSON.stringify(profiles));
 }
 }
 
+function renderProfilesCards() {
+  if (!bagsListEl) return;
+  bagsListEl.innerHTML = "";
+  const names = Object.keys(profiles);
+  for (let i = 0; i < names.length; i += 1) {
+    const name = names[i];
+    const p = profiles[name];
+    const card = document.createElement("div");
+    card.className = "bag-card";
+    const title = document.createElement("div");
+    title.textContent = name;
+    const styleEl = document.createElement("div");
+    styleEl.className = "bag-style";
+    styleEl.textContent = (p.texture || "plastic");
+    const colorsEl = document.createElement("div");
+    colorsEl.className = "bag-colors-pill";
+    const dieDot = document.createElement("span");
+    dieDot.className = "color-dot";
+    dieDot.style.background = p.diceColor;
+    const numDot = document.createElement("span");
+    numDot.className = "color-dot";
+    numDot.style.background = p.numberColor;
+    colorsEl.appendChild(dieDot);
+    colorsEl.appendChild(numDot);
+    const actionEl = document.createElement("div");
+    actionEl.className = "bag-action";
+    const btn = document.createElement("button");
+    btn.textContent = currentProfileName === name ? "Active" : "Set Active";
+    btn.addEventListener("click", () => {
+      applyProfile(name);
+      renderProfilesCards();
+    });
+    actionEl.appendChild(btn);
+    card.appendChild(title);
+    card.appendChild(styleEl);
+    card.appendChild(colorsEl);
+    card.appendChild(actionEl);
+    bagsListEl.appendChild(card);
+  }
+  const addCard = document.createElement("div");
+  addCard.className = "bag-card";
+  const aTitle = document.createElement("div");
+  aTitle.textContent = "New Bag";
+  const aStyle = document.createElement("div");
+  aStyle.textContent = "-";
+  const aColors = document.createElement("div");
+  aColors.textContent = "-";
+  const aAction = document.createElement("div");
+  aAction.className = "bag-action";
+  const plus = document.createElement("button");
+  plus.textContent = "+";
+  plus.addEventListener("click", () => {
+    settingsBody.classList.remove("hud-overlay-hidden");
+  });
+  aAction.appendChild(plus);
+  addCard.appendChild(aTitle);
+  addCard.appendChild(aStyle);
+  addCard.appendChild(aColors);
+  addCard.appendChild(aAction);
+  bagsListEl.appendChild(addCard);
+}
 function refreshProfileSelect(selectedName) {
 while (profileSelect.firstChild) {
 profileSelect.removeChild(profileSelect.firstChild);
