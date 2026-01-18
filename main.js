@@ -449,7 +449,8 @@ geometry = new THREE.BoxGeometry(radius * 2, radius * 2, radius * 2);
 
   let material;
   if (type === "d6") {
-    material = createD6Materials();
+    // Switch d6 to dynamic atlas too for consistency
+    material = createMaterialForCurrentStyle();
   } else {
     material = type === "d2" || type === "d3" || type === "d5"
       ? new THREE.MeshStandardMaterial({ color: new THREE.Color(diceColor), metalness: 0.8, roughness: 0.2 })
@@ -459,6 +460,14 @@ geometry = new THREE.BoxGeometry(radius * 2, radius * 2, radius * 2);
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
+
+  if (type !== "d2" && type !== "d3" && type !== "d5") {
+    const faceCount = getSidesForType(type);
+    const atlas = createNumberAtlas(faceCount, numberColor);
+    applyAtlasUVs(mesh.geometry, faceCount, atlas.tiles, type);
+    mesh.material.map = atlas.texture;
+    mesh.material.needsUpdate = true;
+  }
 
   return { mesh, radius };
 }
@@ -541,9 +550,7 @@ texture: style.texture,
   rollId: rollId || null
 };
 
-  if (type === "d4" || type === "d20") {
-    addFaceNumbersToDie(die);
-  }
+  // Face numbers via dynamic canvas texture atlas are applied in createDieMesh
 
 dice.push(die);
 }
@@ -646,6 +653,9 @@ addRollToHistory(die, value);
 function updateDiceMaterials() {
 for (let i = 0; i < dice.length; i += 1) {
 const die = dice[i];
+    if (!die.mesh || !die.mesh.isMesh) {
+      continue;
+    }
     if (Array.isArray(die.mesh.material)) {
       for (let j = 0; j < die.mesh.material.length; j += 1) {
         if (die.mesh.material[j]) {
@@ -655,10 +665,19 @@ const die = dice[i];
     } else if (die.mesh.material) {
       die.mesh.material.dispose();
     }
-    if (die.type === "d6") {
-      die.mesh.material = createD6Materials();
+    if (die.type === "d2" || die.type === "d3" || die.type === "d5") {
+      die.mesh.material = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(diceColor),
+        metalness: 0.8,
+        roughness: 0.2
+      });
     } else {
       die.mesh.material = createMaterialForCurrentStyle();
+      const faceCount = getSidesForType(die.type);
+      const atlas = createNumberAtlas(faceCount, numberColor);
+      applyAtlasUVs(die.mesh.geometry, faceCount, atlas.tiles, die.type);
+      die.mesh.material.map = atlas.texture;
+      die.mesh.material.needsUpdate = true;
     }
 }
 }
@@ -706,71 +725,176 @@ function getDieValue(die) {
   return 1 + Math.floor(Math.random() * die.sides);
 }
 
-function createFaceLabelMesh(text, colorHex, scale) {
-  const size = 128;
+function createNumberAtlas(faceCount, colorHex) {
+  const cols = Math.ceil(Math.sqrt(faceCount));
+  const rows = Math.ceil(faceCount / cols);
+  const size = 1024;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, size, size);
-  ctx.fillStyle = colorHex;
+  const cellW = size / cols;
+  const cellH = size / rows;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = "bold 80px system-ui";
-  ctx.fillText(String(text), size / 2, size / 2);
+  ctx.font = "bold " + Math.floor(Math.min(cellW, cellH) * 0.6) + "px system-ui";
+  ctx.fillStyle = colorHex;
+  const tiles = [];
+  for (let i = 0; i < faceCount; i += 1) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = col * cellW;
+    const y = row * cellH;
+    tiles.push({
+      u0: x / size,
+      v0: y / size,
+      u1: (x + cellW) / size,
+      v1: (y + cellH) / size
+    });
+    ctx.fillText(String(i + 1), x + cellW / 2, y + cellH / 2);
+  }
   const texture = new THREE.CanvasTexture(canvas);
   texture.generateMipmaps = false;
   texture.minFilter = THREE.LinearFilter;
   texture.magFilter = THREE.LinearFilter;
-  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
-  const geo = new THREE.PlaneGeometry(scale, scale);
-  const mesh = new THREE.Mesh(geo, material);
-  return mesh;
+  return { canvas, texture, tiles, cols, rows };
 }
 
-function addFaceNumbersToDie(die) {
-  const geom = die.mesh.geometry;
-  if (!geom || !geom.attributes || !geom.attributes.position) {
-    return;
-  }
-  const pos = geom.attributes.position;
-  const index = geom.index ? geom.index.array : null;
-  const faceCount = index ? index.length / 3 : pos.count / 3;
-  const numbers = [];
-  if (die.type === "d4") {
-    for (let i = 0; i < 4; i += 1) numbers.push(i + 1);
-  } else if (die.type === "d20") {
-    for (let i = 0; i < 20; i += 1) numbers.push(i + 1);
-  }
-  const scale = die.type === "d4" ? 0.6 : 0.4;
-  const offset = die.type === "d4" ? die.radius * 0.02 : die.radius * 0.02;
-  const a = new THREE.Vector3();
-  const b = new THREE.Vector3();
-  const c = new THREE.Vector3();
-  const centroid = new THREE.Vector3();
-  const normal = new THREE.Vector3();
-  for (let f = 0; f < faceCount && f < numbers.length; f += 1) {
+function groupTrianglesByNormal(geometry, tolerance) {
+  const pos = geometry.attributes.position;
+  const index = geometry.index ? geometry.index.array : null;
+  const triCount = index ? index.length / 3 : pos.count / 3;
+  const groups = [];
+  const normals = [];
+  for (let t = 0; t < triCount; t += 1) {
+    let i0, i1, i2;
     if (index) {
-      const i0 = index[f * 3 + 0];
-      const i1 = index[f * 3 + 1];
-      const i2 = index[f * 3 + 2];
-      a.set(pos.getX(i0), pos.getY(i0), pos.getZ(i0));
-      b.set(pos.getX(i1), pos.getY(i1), pos.getZ(i1));
-      c.set(pos.getX(i2), pos.getY(i2), pos.getZ(i2));
+      i0 = index[t * 3 + 0];
+      i1 = index[t * 3 + 1];
+      i2 = index[t * 3 + 2];
     } else {
-      a.set(pos.getX(f * 3 + 0), pos.getY(f * 3 + 0), pos.getZ(f * 3 + 0));
-      b.set(pos.getX(f * 3 + 1), pos.getY(f * 3 + 1), pos.getZ(f * 3 + 1));
-      c.set(pos.getX(f * 3 + 2), pos.getY(f * 3 + 2), pos.getZ(f * 3 + 2));
+      i0 = t * 3 + 0;
+      i1 = t * 3 + 1;
+      i2 = t * 3 + 2;
     }
-    centroid.copy(a).add(b).add(c).multiplyScalar(1 / 3);
-    normal.copy(b).sub(a).cross(c.clone().sub(a)).normalize();
-    const label = createFaceLabelMesh(numbers[f], die.numberColor, scale);
-    const target = centroid.clone().add(normal.clone().multiplyScalar(offset));
-    label.position.copy(target);
-    const lookAtTarget = centroid.clone().add(normal);
-    label.lookAt(lookAtTarget);
-    die.mesh.add(label);
+    const p0 = new THREE.Vector3().fromBufferAttribute(pos, i0);
+    const p1 = new THREE.Vector3().fromBufferAttribute(pos, i1);
+    const p2 = new THREE.Vector3().fromBufferAttribute(pos, i2);
+    const n = new THREE.Vector3().subVectors(p1, p0).cross(new THREE.Vector3().subVectors(p2, p0)).normalize();
+    let gid = -1;
+    for (let g = 0; g < normals.length; g += 1) {
+      if (n.dot(normals[g]) > 1 - tolerance) {
+        gid = g;
+        break;
+      }
+    }
+    if (gid === -1) {
+      normals.push(n.clone());
+      groups.push([]);
+      gid = groups.length - 1;
+    }
+    groups[gid].push(t);
   }
+  return groups;
+}
+
+function applyAtlasUVs(geometry, faceCount, tiles, type) {
+  const pos = geometry.attributes.position;
+  const index = geometry.index ? geometry.index.array : null;
+  const triCount = index ? index.length / 3 : pos.count / 3;
+  let uvAttr = geometry.attributes.uv;
+  if (!uvAttr || uvAttr.count !== pos.count) {
+    const uv = new Float32Array(pos.count * 2);
+    geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    uvAttr = geometry.attributes.uv;
+  }
+  const setUV = (vi, u, v) => {
+    uvAttr.setXY(vi, u, v);
+  };
+  if (type === "d6") {
+    for (let t = 0; t < triCount; t += 1) {
+      const tileIndex = Math.min(faceCount - 1, Math.floor(t / 2));
+      const tile = tiles[tileIndex];
+      const u0 = tile.u0, v0 = tile.v0, u1 = tile.u1, v1 = tile.v1;
+      let i0, i1, i2;
+      if (index) {
+        i0 = index[t * 3 + 0];
+        i1 = index[t * 3 + 1];
+        i2 = index[t * 3 + 2];
+      } else {
+        i0 = t * 3 + 0;
+        i1 = t * 3 + 1;
+        i2 = t * 3 + 2;
+      }
+      setUV(i0, u0, v0);
+      setUV(i1, u1, v0);
+      setUV(i2, u0, v1);
+    }
+  } else if (type === "d4" || type === "d8" || type === "d20") {
+    for (let t = 0; t < triCount; t += 1) {
+      const tileIndex = Math.min(faceCount - 1, t % faceCount);
+      const tile = tiles[tileIndex];
+      const u0 = tile.u0, v0 = tile.v0, u1 = tile.u1, v1 = tile.v1;
+      let i0, i1, i2;
+      if (index) {
+        i0 = index[t * 3 + 0];
+        i1 = index[t * 3 + 1];
+        i2 = index[t * 3 + 2];
+      } else {
+        i0 = t * 3 + 0;
+        i1 = t * 3 + 1;
+        i2 = t * 3 + 2;
+      }
+      setUV(i0, u0, v0);
+      setUV(i1, u1, v0);
+      setUV(i2, u0, v1);
+    }
+  } else if (type === "d12") {
+    const groups = groupTrianglesByNormal(geometry, 1e-5);
+    for (let g = 0; g < groups.length; g += 1) {
+      const tileIndex = Math.min(faceCount - 1, g);
+      const tile = tiles[tileIndex];
+      const u0 = tile.u0, v0 = tile.v0, u1 = tile.u1, v1 = tile.v1;
+      const tris = groups[g];
+      for (let k = 0; k < tris.length; k += 1) {
+        const t = tris[k];
+        let i0, i1, i2;
+        if (index) {
+          i0 = index[t * 3 + 0];
+          i1 = index[t * 3 + 1];
+          i2 = index[t * 3 + 2];
+        } else {
+          i0 = t * 3 + 0;
+          i1 = t * 3 + 1;
+          i2 = t * 3 + 2;
+        }
+        setUV(i0, u0, v0);
+        setUV(i1, u1, v0);
+        setUV(i2, u0, v1);
+      }
+    }
+  } else {
+    for (let t = 0; t < triCount; t += 1) {
+      const tileIndex = Math.min(faceCount - 1, t % faceCount);
+      const tile = tiles[tileIndex];
+      const u0 = tile.u0, v0 = tile.v0, u1 = tile.u1, v1 = tile.v1;
+      let i0, i1, i2;
+      if (index) {
+        i0 = index[t * 3 + 0];
+        i1 = index[t * 3 + 1];
+        i2 = index[t * 3 + 2];
+      } else {
+        i0 = t * 3 + 0;
+        i1 = t * 3 + 1;
+        i2 = t * 3 + 2;
+      }
+      setUV(i0, u0, v0);
+      setUV(i1, u1, v0);
+      setUV(i2, u0, v1);
+    }
+  }
+  uvAttr.needsUpdate = true;
 }
 
 function createMaterialForCurrentStyle() {
