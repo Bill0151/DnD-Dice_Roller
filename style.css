@@ -226,6 +226,10 @@ transform: translateY(0);
 box-shadow: 0 2px 6px rgba(15, 23, 42, 0.8);
 }
 
+#renderer-container canvas {
+  touch-action: none;
+}
+
 .roll-selected-button {
   margin-top: 8px;
   width: 100%;
@@ -250,6 +254,26 @@ box-shadow: 0 2px 6px rgba(15, 23, 42, 0.8);
 .roll-selected-button:active {
   transform: translateY(0);
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.8);
+}
+
+.roll-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  color: #e5e7eb;
+}
+
+#roll-result-value {
+  font-size: 1.6rem;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: radial-gradient(circle at top left, rgba(148, 163, 184, 0.15), rgba(2, 6, 23, 0.6));
+}
+
+.roll-result.highlight #roll-result-value {
+  background: radial-gradient(circle at top left, rgba(99, 102, 241, 0.35), rgba(2, 6, 23, 0.6));
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.5);
 }
 
 .clear-dice-button {
