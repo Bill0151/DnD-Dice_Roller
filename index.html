@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>D&D 3D Dice Roller</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cannon@0.6.2/build/cannon.min.js"></script>
+</head>
+<body>
+<div class="app">
+<header class="app-header">
+<h1 class="app-title">D&D 3D Dice Roller</h1>
+<div class="roll-result">
+Last roll:
+<span id="roll-result-value">–</span>
+</div>
+<div id="roll-history" class="roll-history"></div>
+</header>
+<main class="app-main">
+<section class="tray-section">
+<div id="renderer-container"></div>
+</section>
+<aside class="controls-section">
+<div class="controls-group">
+<h2>Players</h2>
+<div class="player-buttons">
+<button data-player="Emp">Emp</button>
+<button data-player="Bill">Bill</button>
+</div>
+</div>
+<div class="controls-group">
+<h2>Dice</h2>
+<div class="dice-buttons">
+<button data-die="d4">d4</button>
+<button data-die="d6">d6</button>
+<button data-die="d8">d8</button>
+<button data-die="d10">d10</button>
+<button data-die="d12">d12</button>
+          <button data-die="d20">d20</button>
+          <button data-die="d100">d100</button>
+</div>
+        <button id="roll-selected" class="roll-selected-button">Roll selected</button>
+<button id="clear-dice" class="clear-dice-button">Clear dice</button>
+</div>
+<div class="controls-group">
+<div class="settings-header">
+<h2>Settings</h2>
+<button id="toggle-settings" class="settings-toggle">Customize</button>
+</div>
+<div id="settings-body" class="settings-body settings-body-hidden">
+<div class="setting-row">
+<label for="dice-color">Dice color</label>
+<input type="color" id="dice-color" value="#3d8bfd">
+</div>
+<div class="setting-row">
+<label for="number-color">Number color</label>
+<input type="color" id="number-color" value="#ffffff">
+</div>
+<div class="setting-row">
+<label for="texture-style">Texture</label>
+<select id="texture-style">
+<option value="solid">Solid</option>
+<option value="marble">Marbled</option>
+<option value="metal">Metallic</option>
+<option value="crystal">Crystal</option>
+<option value="wood">Wood</option>
+</select>
+</div>
+<div class="profiles">
+<div class="profiles-header">Profiles</div>
+<div class="setting-row">
+<label for="profile-select">Choose</label>
+<select id="profile-select"></select>
+</div>
+<div class="setting-row">
+<label for="profile-name">Name</label>
+<input type="text" id="profile-name" placeholder="Profile name">
+</div>
+<div class="profiles-buttons">
+<button id="apply-profile">Apply</button>
+<button id="save-profile">Save</button>
+</div>
+</div>
+</div>
+</div>
+</aside>
+</main>
+</div>
+<script src="main.js"></script>
+</body>
+</html>
+
