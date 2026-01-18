@@ -1,3 +1,6 @@
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.module.js";
+import * as CANNON from "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js";
+
 const rendererContainer = document.getElementById("renderer-container");
 const resultValueEl = document.getElementById("roll-result-value") || { style: {}, textContent: "" };
 const rollLogEl = document.getElementById("roll-log");
@@ -29,8 +32,8 @@ let previewRenderer = null;
 let previewDie = null;
 let previewRunning = false;
 
-let diceColor = diceColorInput.value;
-let numberColor = numberColorInput.value;
+let diceColor = (typeof diceColorInput !== "undefined" && diceColorInput && diceColorInput.value) ? diceColorInput.value : "#3d8bfd";
+let numberColor = (typeof numberColorInput !== "undefined" && numberColorInput && numberColorInput.value) ? numberColorInput.value : "#ffffff";
 let currentTexture = "solid";
 
 let scene;
@@ -151,18 +154,24 @@ window.addEventListener("resize", handleResize);
     });
   });
 
-diceColorInput.addEventListener("input", () => {
-diceColor = diceColorInput.value;
-});
-
-numberColorInput.addEventListener("input", () => {
-numberColor = numberColorInput.value;
-resultValueEl.style.color = numberColor;
-});
-
-textureStyleSelect.addEventListener("change", () => {
-currentTexture = textureStyleSelect.value;
-});
+if (diceColorInput) {
+  diceColorInput.addEventListener("input", () => {
+    diceColor = diceColorInput.value;
+  });
+}
+if (numberColorInput) {
+  numberColorInput.addEventListener("input", () => {
+    numberColor = numberColorInput.value;
+    if (resultValueEl && resultValueEl.style) {
+      resultValueEl.style.color = numberColor;
+    }
+  });
+}
+if (textureStyleSelect) {
+  textureStyleSelect.addEventListener("change", () => {
+    currentTexture = textureStyleSelect.value;
+  });
+}
 
 applyProfileButton.addEventListener("click", () => {
 const name = profileSelect.value;
@@ -1604,9 +1613,15 @@ function renderProfilesCards() {
   bagsListEl.appendChild(addCard);
 }
 function refreshProfileSelect(selectedName) {
-while (profileSelect.firstChild) {
-profileSelect.removeChild(profileSelect.firstChild);
-}
+  if (!profileSelect) {
+    if (selectedName) {
+      currentProfileName = selectedName;
+    }
+    return;
+  }
+  while (profileSelect.firstChild) {
+    profileSelect.removeChild(profileSelect.firstChild);
+  }
 const names = Object.keys(profiles).sort();
 for (let i = 0; i < names.length; i += 1) {
 const name = names[i];
@@ -1634,10 +1649,18 @@ currentProfileName = name;
 diceColor = profile.diceColor;
 numberColor = profile.numberColor;
 currentTexture = profile.texture || "solid";
-diceColorInput.value = diceColor;
-numberColorInput.value = numberColor;
-textureStyleSelect.value = currentTexture;
-resultValueEl.style.color = numberColor;
+  if (diceColorInput) {
+    diceColorInput.value = diceColor;
+  }
+  if (numberColorInput) {
+    numberColorInput.value = numberColor;
+  }
+  if (textureStyleSelect) {
+    textureStyleSelect.value = currentTexture;
+  }
+  if (resultValueEl && resultValueEl.style) {
+    resultValueEl.style.color = numberColor;
+  }
   setActivePlayerFromProfile(name);
 }
 
